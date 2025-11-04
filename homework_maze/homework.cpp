@@ -533,17 +533,14 @@ GLvoid MouseMove(int x, int y) {
         // cam_at = cam_locate - (회전된 시선 벡터 * 반지름)
         glm::vec3 new_cam_at = cam_locate - view_dir * cam_radius;
 
-        // 5. 전역 변수에 결과 반영 (💥 Timer에 의해 덮어쓰이는 문제 방지)
         x_at = new_cam_at.x;
         y_at = new_cam_at.y;
         z_at = new_cam_at.z;
 
-        // 6. 다음 업데이트를 위해 현재 마우스 위치 저장
         last_mouse_x = x;
         last_mouse_y = y;
 
-        // 7. 화면 갱신 및 카메라 업데이트
-        update_camera(); // update_camera를 호출하여 cam_locate, cam_at, cam_up를 최종 반영합니다.
+        update_camera();
         glutPostRedisplay();
     }
 }
