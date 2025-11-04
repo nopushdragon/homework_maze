@@ -87,6 +87,10 @@ struct SHAPE {
 	float speed = rdspeed(mt);
 	bool is_moving_up = true;
 
+	bool r_increasing = true;
+    bool g_increasing = true;
+    bool b_increasing = true;
+
     int face_count;
     int object_num;
 
@@ -427,20 +431,28 @@ GLvoid Keyboard(unsigned char key, int x, int y)
 GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
 {
     for (int i = 0; i < shapes.size(); i++) {
-        for(int j = 0; j <shapes[i].vertex.size(); j++) {
+
+        for (int j = 0; j < shapes[i].vertex.size(); j++) {
             if (j % 6 == 3) {
-			    if (shapes[i].vertex[j] >= 1.0f) shapes[i].vertex[j] = 0.0f;
-                else shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                if (shapes[i].vertex[j] >= 1.0f) shapes[i].r_increasing = false;
+				else if (shapes[i].vertex[j] <= 0.0f) shapes[i].r_increasing = true;
+                if(shapes[i].r_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
             }
             if (j % 6 == 4) {
-                if (shapes[i].vertex[j] >= 1.0f) shapes[i].vertex[j] = 0.0f;
-                else shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                if (shapes[i].vertex[j] <= 0.0f) shapes[i].g_increasing = true;
+                else if(shapes[i].vertex[j] >= 1.0f) shapes[i].g_increasing = false;
+                if (shapes[i].g_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
             }
             if (j % 6 == 5) {
-                if (shapes[i].vertex[j] >= 1.0f) shapes[i].vertex[j] = 0.0f;
-                else shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                if (shapes[i].vertex[j] <= 0.0f) shapes[i].b_increasing = true;
+                else if (shapes[i].vertex[j] >= 1.0f) shapes[i].b_increasing = false;
+                if (shapes[i].b_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
             }
-		}
+        }
+        
         
 
 
