@@ -16,6 +16,8 @@
 #include <random>
 #include <vector>
 #include <string.h>
+#include <algorithm> // std::shuffle 용
+#include <stack>     // (참고: 재귀 대신 스택으로도 구현 가능)
 
 std::random_device rd;
 std::mt19937 mt(rd());
@@ -68,7 +70,10 @@ bool is_mouse_down = false; // 마우스 왼쪽 버튼 클릭 상태
 int last_mouse_x = 0;      // 마지막 마우스 X 좌표
 int last_mouse_y = 0;      // 마지막 마우스 Y 좌표
 float cam_radius = 0.0f;   // cam_at과 cam_locate 사이의 거리
+
+
 //
+
 
 struct OBB {
     glm::vec3 center = glm::vec3(0.0f);     // OBB의 중심 (월드 좌표계)
@@ -110,6 +115,77 @@ void drawMiniMap(int w, int h);
 void reset_c();
 void update_camera();
 
+//
+int MAZE_WIDTH = 10;
+int MAZE_LENGTH = 15;
+
+int GRID_HEIGHT = MAZE_WIDTH * 2 + 1;
+int GRID_WIDTH = MAZE_LENGTH * 2 + 1;
+
+enum CellType {
+    PATH = 0, // 길 (큐브 배치 안 함)
+    WALL = 1  // 벽 (큐브 배치 함)
+};
+
+std::vector<std::vector<int>> maze;
+
+void printMaze();
+void printMaze() {
+    for (int y = 0; y < GRID_HEIGHT; ++y) {
+        for (int x = 0; x < GRID_WIDTH; ++x) {
+            // ■ (벽),  (길) 로 표시
+            if (maze[y][x] == WALL) {
+                std::cout << "■";
+            }
+            else {
+                std::cout << " ";
+            }
+        }
+        std::cout << std::endl;
+    }
+}
+
+// --- 핵심: 재귀적 백트래킹 함수 ---
+// (cx, cy)는 *셀* 좌표가 아닌, *그리드* 좌표 (항상 홀수)
+void generateMaze(int cx, int cy);
+void generateMaze(int cx, int cy) {
+
+    // 1. 현재 위치를 길로 만듦 (방문 표시)
+    maze[cy][cx] = PATH;
+
+    // 2. 4방향 (상, 하, 좌, 우)을 무작위로 섞음
+    //    이동할 방향 (셀 2칸 이동)
+    std::vector<std::pair<int, int>> directions = {
+        {0, -2}, // 상
+        {0, 2},  // 하
+        {-2, 0}, // 좌
+        {2, 0}   // 우
+    };
+
+    // std::shuffle을 위해 <algorithm> 필요
+    std::shuffle(directions.begin(), directions.end(), mt);
+
+    // 3. 섞인 방향을 하나씩 탐색
+    for (const auto& dir : directions) {
+        int nx = cx + dir.first;
+        int ny = cy + dir.second;
+
+        // 4. 미로 범위(GRID) 안인지, 그리고 *아직 방문하지 않았는지* (즉, WALL인지) 확인
+        if (nx > 0 && nx < GRID_WIDTH - 1 && ny > 0 && ny < GRID_HEIGHT - 1 && maze[ny][nx] == WALL) {
+
+            // 5. 현재 칸과 다음 칸 사이의 벽을 허묾
+            int wall_x = cx + dir.first / 2;
+            int wall_y = cy + dir.second / 2;
+            maze[wall_y][wall_x] = PATH;
+
+            // 6. 다음 칸에서 재귀 호출 (깊이 우선 탐색)
+            generateMaze(nx, ny);
+        }
+        // 7. (방문할 이웃이 없으면) for 루프가 끝나고 함수가 종료됨 -> 자동으로 백트래킹
+    }
+}
+//
+
 char* filetobuf(const char* file)
 {
     FILE* fptr;
@@ -137,8 +213,16 @@ void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설�
     } while (!(maze_width >= 5 && maze_width <= 35) || !(maze_length >= 5 && maze_length <= 35));
 	std::cout << maze_width << " " << maze_length << std::endl;
 
+    GRID_HEIGHT = maze_width;
+    GRID_WIDTH = maze_length;
+
+    std::vector<std::vector<int>> a(GRID_HEIGHT, std::vector<int>(GRID_WIDTH, WALL));
+    maze = a;
+
     y_cam = BOX_SIZE * (maze_width + maze_width)/2+ 10.0f; // 카메라 초기 위치 설정
 	z_cam = maze_width + maze_width; // 카메라 초기 위치 설정
+    generateMaze(1, 0);
+    printMaze();
 
     width = 1200;
     height = 800;
@@ -778,14 +862,50 @@ bool check_obb_collision(const SHAPE& shapeA, const SHAPE& shapeB) {
     return true;
 }
 
-void init_maze() {   // length: x축, width: z축
+void init_maze() {
+    // maze_width, maze_length는 셀의 개수
+    // maze 벡터는 (maze_width*2+1), (maze_length*2+1) 크기를 가짐
+
     int cube_idx = 0;
-    for (int i = 0;i < maze_width; i++) {
-        for (int j = 0;j < maze_length; j++) {
-			shapes[cube_idx].reset = glm::vec3(BOX_SIZE/2 + (BOX_SIZE * j) - ( (BOX_SIZE * (float)maze_length) / 2) , 0.0f, BOX_SIZE/2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)maze_length) / 2));
-			cube_idx++;
+
+    // C++ 스타일로 2D 벡터 순회
+    // y가 행(i), x가 열(j)에 해당
+    for (int i = 0; i < GRID_HEIGHT; i++) {       // i는 y축 (님의 코드에서는 z방향)
+        for (int j = 0; j < GRID_WIDTH; j++) {    // j는 x축 (님의 코드에서는 x방향)
+
+            // 생성된 미로 데이터를 확인
+            if (maze[i][j] == WALL) {
+                // 벽일 때만 큐브(shape)를 배치합니다.
+
+                // shapes 벡터 크기가 충분한지 확인 (미리 LoadOBJ로 채워둠)
+                if (cube_idx >= shapes.size()) {
+                    std::cerr << "ERROR: Too many walls for pre-loaded shapes!" << std::endl;
+                    return;
+                }
+
+                // 님의 기존 좌표 계산 로직 사용
+                // (i, j) 인덱스를 월드 좌표로 변환
+                float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)GRID_WIDTH) / 2);
+                float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)GRID_HEIGHT) / 2); // Z축 좌표계에 맞게 수정
+
+                shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
+
+                // (중요) 큐브 인덱스 증가
+                cube_idx++;
+            }
+            // else (maze[i][j] == PATH)
+            // 길이 있는 곳은 큐브를 배치하지 않고 넘어갑니다. (빈 공간이 됨)
         }
     }
+
+    // (중요) 사용되지 않은 큐브(shape) 제거
+    // 만약 모든 shape을 LoadOBJ로 생성했다면, 벽이 아닌 곳의 shape은 숨기거나 제거해야 합니다.
+    // 가장 쉬운 방법은 '벽 개수'만큼만 큐브를 LoadOBJ하는 것입니다.
+    // 또는, 'reset' 위치를 아주 멀리 두거나, 렌더링 목록에서 제외합니다.
+
+    // 예: 사용한 큐브(벽) 수만큼만 남기고 나머지를 제거
+    // shapes.resize(cube_idx); 
+    // UpdateBuffer(); // 버퍼도 업데이트 필요
 }
 
 void drawMiniMap(int w, int h)
