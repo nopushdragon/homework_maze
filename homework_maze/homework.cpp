@@ -65,10 +65,11 @@ int maze_width = 0, maze_length = 0;
 bool start_anime = true;
 bool ism = false;
 bool isv = false;
+bool isr = false;
 
-bool is_mouse_down = false; // 마우스 왼쪽 버튼 클릭 상태
-int last_mouse_x = 0;      // 마지막 마우스 X 좌표
-int last_mouse_y = 0;      // 마지막 마우스 Y 좌표
+bool is_mouse_down = false;
+int last_mouse_x = 0;      
+int last_mouse_y = 0;      
 float cam_radius = 0.0f;   // cam_at과 cam_locate 사이의 거리
 
 
@@ -87,17 +88,19 @@ struct SHAPE {
     glm::mat4 model = glm::mat4(1.0f);
 	glm::vec3 reset = glm::vec3(1.0f);
 
-	float height = BOX_SIZE/2;
-	float max_height = rdmaxheight(mt);
-	float speed = rdspeed(mt);
-	bool is_moving_up = true;
+    int face_count;
+    int object_num;
 
 	bool r_increasing = true;
     bool g_increasing = true;
     bool b_increasing = true;
 
-    int face_count;
-    int object_num;
+	float height = BOX_SIZE/2;
+	float max_height = rdmaxheight(mt);
+	float speed = rdspeed(mt);
+	bool is_moving_up = true;
+    
+	bool draw = true;
 
     // OBB 관련 추가 항목
     OBB local_obb;  // 모델링 시점의 로컬 OBB (Model Matrix가 Identity일 때)
@@ -120,8 +123,8 @@ int GRID_HEIGHT;
 int GRID_WIDTH ;
 
 enum CellType {
-    PATH = 0, // 길 (큐브 배치 안 함)
-    WALL = 1  // 벽 (큐브 배치 함)
+    PATH = 0,
+    WALL = 1  
 };
 
 std::vector<std::vector<int>> maze;
@@ -130,7 +133,6 @@ void printMaze();
 void printMaze() {
     for (int y = 0; y < GRID_HEIGHT; ++y) {
         for (int x = 0; x < GRID_WIDTH; ++x) {
-            // ■ (벽),  (길) 로 표시
             if (maze[y][x] == WALL) {
                 std::cout << "■";
             }
@@ -142,32 +144,23 @@ void printMaze() {
     }
 }
 
-// --- 핵심: 재귀적 백트래킹 함수 ---
-// (cx, cy)는 *셀* 좌표가 아닌, *그리드* 좌표 (항상 홀수)
 void generateMaze(int cx, int cy);
 void generateMaze(int cx, int cy) {
-
-    // 1. 현재 위치를 길로 만듦 (방문 표시)
     maze[cy][cx] = PATH;
 
-    // 2. 4방향 (상, 하, 좌, 우)을 무작위로 섞음
-    //    이동할 방향 (셀 2칸 이동)
     std::vector<std::pair<int, int>> directions = {
-        {0, -2}, // 상
-        {0, 2},  // 하
-        {-2, 0}, // 좌
-        {2, 0}   // 우
+        {0, -2}, 
+        {0, 2},  
+        {-2, 0}, 
+        {2, 0}   
     };
 
-    // std::shuffle을 위해 <algorithm> 필요
     std::shuffle(directions.begin(), directions.end(), mt);
 
-    // 3. 섞인 방향을 하나씩 탐색
     for (const auto& dir : directions) {
         int nx = cx + dir.first;
         int ny = cy + dir.second;
         
-        // 4. 미로 범위(GRID) 안인지, 그리고 *아직 방문하지 않았는지* (즉, WALL인지) 확인
         if (nx > 0 && nx < GRID_WIDTH  && ny > 0 && ny < GRID_HEIGHT  && maze[ny][nx] == WALL) {
 
             if (ny == GRID_HEIGHT - 1) {
@@ -181,18 +174,14 @@ void generateMaze(int cx, int cy) {
                 continue;
 			}
             
-            // 5. 현재 칸과 다음 칸 사이의 벽을 허묾
             int wall_x = cx + dir.first / 2;
             int wall_y = cy + dir.second / 2;
             maze[wall_y][wall_x] = PATH;
 
-            // 6. 다음 칸에서 재귀 호출 (깊이 우선 탐색)
             generateMaze(nx, ny);
         }
-        // 7. (방문할 이웃이 없으면) for 루프가 끝나고 함수가 종료됨 -> 자동으로 백트래킹
     }
 }
-//
 
 char* filetobuf(const char* file)
 {
@@ -404,7 +393,7 @@ GLvoid drawScene() {
         }
 
         int vertexCount = shapes[i].vertex.size() / 6;
-        glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        if( isr && shapes[i].draw || !isr)glDrawArrays(GL_TRIANGLES, first, vertexCount);
         first += vertexCount;
     }
     glBindVertexArray(0);
@@ -494,6 +483,9 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         cam_radius = glm::length(cam_locate - cam_at);
         break;
     }
+	case 'r':
+		isr = !isr;
+        break;
     case 'm':
         if(!start_anime) ism = true;
         break;
@@ -551,9 +543,6 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
                 else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
             }
         }
-        
-        
-
 
         if (start_anime) {
             if (shapes[i].height >= shapes[i].max_height) {
@@ -878,38 +867,31 @@ bool check_obb_collision(const SHAPE& shapeA, const SHAPE& shapeB) {
 }
 
 void init_maze() {
-    // maze_width, maze_length는 셀의 개수
-    // maze 벡터는 (maze_width*2+1), (maze_length*2+1) 크기를 가짐
-
     int cube_idx = 0;
 
-    // C++ 스타일로 2D 벡터 순회
-    // y가 행(i), x가 열(j)에 해당
-    for (int i = 0; i < GRID_HEIGHT; i++) {       // i는 y축 (님의 코드에서는 z방향)
-        for (int j = 0; j < GRID_WIDTH; j++) {    // j는 x축 (님의 코드에서는 x방향)
+    for (int i = 0; i < GRID_HEIGHT; i++) {   
+        for (int j = 0; j < GRID_WIDTH; j++) {
 
-            // 생성된 미로 데이터를 확인
             if (maze[i][j] == WALL) {
-                // 벽일 때만 큐브(shape)를 배치합니다.
-
-                // shapes 벡터 크기가 충분한지 확인 (미리 LoadOBJ로 채워둠)
                 if (cube_idx >= shapes.size()) {
                     std::cerr << "ERROR: Too many walls for pre-loaded shapes!" << std::endl;
                     return;
                 }
 
-                // 님의 기존 좌표 계산 로직 사용
-                // (i, j) 인덱스를 월드 좌표로 변환
                 float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)GRID_WIDTH) / 2);
                 float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)GRID_HEIGHT) / 2); // Z축 좌표계에 맞게 수정
 
                 shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
-
-                // (중요) 큐브 인덱스 증가
-                cube_idx++;
+                shapes[cube_idx].draw = true;
             }
-            // else (maze[i][j] == PATH)
-            // 길이 있는 곳은 큐브를 배치하지 않고 넘어갑니다. (빈 공간이 됨)
+            else if (maze[i][j] == PATH) {
+                shapes[cube_idx].draw = false;
+                float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)GRID_WIDTH) / 2);
+                float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)GRID_HEIGHT) / 2); // Z축 좌표계에 맞게 수정
+
+                shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
+            }
+            cube_idx++;
         }
     }
 
@@ -925,41 +907,28 @@ void init_maze() {
 
 void drawMiniMap(int w, int h)
 {
-    // 뷰포트 설정: 오른쪽 상단 1/4 크기의 영역
-    // (w/2 + w/4, h/2 + h/4, w/4, h/4)는 w가 전체 너비, h가 전체 높이일 때 적절합니다.
-    // 하지만 Reshape 콜백에서 w, h는 전체 창 크기이므로,
-    // 뷰포트를 오른쪽 상단 1/4 영역 (전체 창의 1/16)으로 설정합니다.
     glViewport(w * 3 / 4, h * 3 / 4, w / 4, h / 4);
 
-    // 1. 필요한 Uniform 위치 가져오기 (이미 drawScene에서 가져왔다면 생략 가능하나, 명시적으로 다시 가져오는 것이 안전합니다)
     GLuint modelLoc = glGetUniformLocation(shaderProgramID, "uModel");
     GLuint viewLoc = glGetUniformLocation(shaderProgramID, "uView");
     GLuint projLoc = glGetUniformLocation(shaderProgramID, "uProj");
 
-    // 2. 투영 범위 (maxrange) 계산
-    // maze_width/length를 사용하여 대략적인 맵 크기를 추정합니다.
-    // BOX_SIZE * maze_length (x방향 길이)와 BOX_SIZE * maze_width (z방향 길이)
     float map_width = BOX_SIZE * maze_length;
-    float map_height = BOX_SIZE * maze_width; // Y축은 맵 구조에서 높이, Z축은 맵의 '길이/깊이'에 해당하지만 여기서는 X/Z 평면을 주로 다루므로 map_width/map_height를 X/Z축 범위로 사용합니다.
+    float map_height = BOX_SIZE * maze_width;
 
-    // (X, Z 평면에서) 가장 넓은 쪽을 기준으로 직교 투영 범위를 설정합니다.
     float maxrange = std::max(map_width, map_height) / 2.0f + BOX_SIZE * 2.0f; // 약간의 여백 추가
 
-    // 3. 뷰 행렬 설정 (Y축 상단에서 원점을 내려다보는 직교 뷰)
     glm::mat4 view = glm::lookAt(
-        glm::vec3(0.0f, maxrange * 2.0f, 0.0f), // 카메라를 맵 위쪽 (Y축)에 충분히 높게 둡니다.
-        glm::vec3(0.0f, 0.0f, 0.0f),           // 원점을 바라봅니다.
-        glm::vec3(0.0f, 0.0f, -1.0f)           // 업 벡터를 -Z로 설정 (맵이 XZ 평면에 있다면, Y축에서 내려다볼 때 -Z가 위쪽처럼 보이도록 설정)
+        glm::vec3(0.0f, maxrange * 2.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),           
+        glm::vec3(0.0f, 0.0f, -1.0f)           
     );
 
-    // 4. 직교 투영 행렬 설정
     glm::mat4 proj = glm::ortho(-maxrange, maxrange, -maxrange, maxrange, 0.1f, maxrange * 4.0f);
 
-    // 5. 셰이더에 행렬 전송
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(proj));
 
-    // 6. 모든 블록 렌더링
     glBindVertexArray(vao);
     GLint first = 0;
     for (size_t i = 0; i < shapes.size(); i++) {
@@ -967,14 +936,12 @@ void drawMiniMap(int w, int h)
 
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &model[0][0]);
 
-        // drawScene과 동일한 방식으로 렌더링
         int vertexCount = shapes[i].vertex.size() / 6;
-        glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        if (isr && shapes[i].draw || !isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
         first += vertexCount;
     }
     glBindVertexArray(0);
 
-    // 7. 뷰포트 재설정: 다음 렌더링을 위해 전체 화면 뷰포트로 돌아갑니다.
     glViewport(0, 0, w, h);
 }
 
