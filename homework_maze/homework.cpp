@@ -16,8 +16,8 @@
 #include <random>
 #include <vector>
 #include <string.h>
-#include <algorithm> // std::shuffle 용
-#include <stack>     // (참고: 재귀 대신 스택으로도 구현 가능)
+#include <algorithm> 
+#include <stack>     
 
 std::random_device rd;
 std::mt19937 mt(rd());
@@ -116,11 +116,8 @@ void reset_c();
 void update_camera();
 
 //
-int MAZE_WIDTH = 10;
-int MAZE_LENGTH = 15;
-
-int GRID_HEIGHT = MAZE_WIDTH * 2 + 1;
-int GRID_WIDTH = MAZE_LENGTH * 2 + 1;
+int GRID_HEIGHT;
+int GRID_WIDTH ;
 
 enum CellType {
     PATH = 0, // 길 (큐브 배치 안 함)
@@ -169,10 +166,21 @@ void generateMaze(int cx, int cy) {
     for (const auto& dir : directions) {
         int nx = cx + dir.first;
         int ny = cy + dir.second;
-
+        
         // 4. 미로 범위(GRID) 안인지, 그리고 *아직 방문하지 않았는지* (즉, WALL인지) 확인
-        if (nx > 0 && nx < GRID_WIDTH - 1 && ny > 0 && ny < GRID_HEIGHT - 1 && maze[ny][nx] == WALL) {
+        if (nx > 0 && nx < GRID_WIDTH  && ny > 0 && ny < GRID_HEIGHT  && maze[ny][nx] == WALL) {
 
+            if (ny == GRID_HEIGHT - 1) {
+                ny--;
+				maze[ny][nx] = PATH;
+                continue;
+            }
+            if( nx == GRID_WIDTH - 1) {
+                nx--;
+				maze[ny][nx] = PATH;
+                continue;
+			}
+            
             // 5. 현재 칸과 다음 칸 사이의 벽을 허묾
             int wall_x = cx + dir.first / 2;
             int wall_y = cy + dir.second / 2;
@@ -221,7 +229,14 @@ void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설�
 
     y_cam = BOX_SIZE * (maze_width + maze_width)/2+ 10.0f; // 카메라 초기 위치 설정
 	z_cam = maze_width + maze_width; // 카메라 초기 위치 설정
-    generateMaze(1, 0);
+	maze[0][1] = PATH;
+    generateMaze(1, 1);
+    for(int i = GRID_WIDTH -1; i > 0; i--) {
+        if(maze[GRID_HEIGHT-2][i] == PATH) {
+            maze[GRID_HEIGHT-1][i] = PATH;
+            break;
+        }
+	}
     printMaze();
 
     width = 1200;
