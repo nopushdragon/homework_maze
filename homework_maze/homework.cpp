@@ -620,6 +620,25 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         }
         break;
     case '3':
+        if (is1) {
+            is1 = false;
+
+            x_cam = 0.0f;
+            y_cam = BOX_SIZE * (maze_width + maze_width) / 2 + 10.0f;
+            z_cam = maze_width * 2;
+
+            x_at = 0.0f;
+            y_at = 0.0f;
+            z_at = 0.0f;
+
+            x_up = 0.0f;
+            y_up = 1.0f;
+            z_up = 0.0f;
+
+            update_camera();
+            cam_radius = glm::length(cam_locate - cam_at);
+            if (cam_radius < 1.0f) cam_radius = 1.0f;
+        }
         break;
     case'c':
         reset_c();
@@ -1131,6 +1150,17 @@ void reset_c() {
 	start_anime = true;
     ism = false;
     isv = false;
+    iss = false;
+	isr = false;
+    is1 = false;
+
+	shapes[player_object_num].draw = false;
+    p_x = shapes[1].reset.x;
+    p_y = BOX_SIZE / 2;
+    p_z = shapes[1].reset.z;
+    p_x_move = 0;
+	p_z_move = 0;
+
 }
 
 void update_camera() {
