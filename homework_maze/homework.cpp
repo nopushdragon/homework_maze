@@ -1,8 +1,6 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS //--- 프로그램 맨 앞에 선언할 것
 #define MAX_LINE_LENGTH 256
-
 #define BOX_SIZE  2.0f
-
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,6 +22,7 @@ std::mt19937 mt(rd());
 std::uniform_real_distribution<float> rdcolor(0.0f, 1.0f);
 std::uniform_real_distribution<float> rdmaxheight(BOX_SIZE*2, BOX_SIZE*3);
 std::uniform_real_distribution<float> rdspeed(0.01f, 0.05f);
+std::uniform_int_distribution<int> rdmaze(0, 1);
 
 void make_vertexShaders();
 void make_fragmentShaders();
@@ -31,14 +30,17 @@ GLuint make_shaderProgram();
 GLvoid drawScene();
 GLvoid Reshape(int w, int h);
 GLvoid Keyboard(unsigned char key, int x, int y);
+GLvoid SpecialKey(int key, int x, int y);
+GLvoid SpecialUpKey(int key, int x, int y);
 GLvoid Mouse(int button, int state, int x, int y);
+GLvoid MouseMove(int x, int y);
 GLvoid Timer(int value);
 void InitBuffer();
 void LoadOBJ(const char* filename, int object_num);
 void reset_bool();
 
 //--- 필요한 변수 선언
-GLint width, height;
+GLint width = 1200, height = 800;
 GLuint shaderProgramID; //--- 세이더 프로그램 이름
 GLuint vertexShader; //--- 버텍스 세이더 객체
 GLuint fragmentShader; //--- 프래그먼트 세이더 객체
@@ -66,20 +68,28 @@ bool start_anime = true;
 bool ism = false;
 bool isv = false;
 bool isr = false;
+bool iss = false;
+bool is1 = false;
 
 bool is_mouse_down = false;
 int last_mouse_x = 0;      
 int last_mouse_y = 0;      
 float cam_radius = 0.0f;   // cam_at과 cam_locate 사이의 거리
 
+int player_object_num = -1;
+float p_x, p_y, p_z;
+int p_x_move = 0; // -1: left, 1: right
+int p_z_move = 0; // -1: down, 1: up
 
+int ground_object_num = -1;
+int goal_cnt = 0;
 //
 
 
 struct OBB {
-    glm::vec3 center = glm::vec3(0.0f);     // OBB의 중심 (월드 좌표계)
-    glm::vec3 u[3];                         // OBB의 세 정규직교 축 (u[0]=x축, u[1]=y축, u[2]=z축)
-    glm::vec3 half_length = glm::vec3(0.0f); // 각 축을 따른 중심으로부터의 반치수 (Local Space)
+    glm::vec3 center = glm::vec3(0.0f);     
+    glm::vec3 u[3];                         // 세 정규직교 축 (u[0]=x축, u[1]=y축, u[2]=z축)
+    glm::vec3 half_length = glm::vec3(0.0f); 
 };
 
 std::vector<GLfloat> allVertices;
@@ -102,25 +112,24 @@ struct SHAPE {
     
 	bool draw = true;
 
-    // OBB 관련 추가 항목
-    OBB local_obb;  // 모델링 시점의 로컬 OBB (Model Matrix가 Identity일 때)
-    OBB world_obb;  // 현재 프레임의 월드 OBB (Model Matrix 적용 후)
-    bool is_colliding = false; // 충돌 상태
+    // OBB
+    OBB local_obb;  // 로컬 OBB
+    OBB world_obb;  // 월드 OBB 
+    bool is_colliding = false;
 };
 std::vector<SHAPE> shapes;
 
-GLvoid MouseMove(int x, int y);
 void update_world_obb(SHAPE& shape);
 bool check_obb_collision(const SHAPE& shapeA, const SHAPE& shapeB);
 bool is_separated(const OBB& a, const OBB& b, const glm::vec3& axis);
-void init_maze();
 void drawMiniMap(int w, int h);
 void reset_c();
 void update_camera();
-
-//
-int GRID_HEIGHT;
-int GRID_WIDTH ;
+void init_maze();
+void setMaze();
+void retouchMaze();
+void generateMaze(int cx, int cy);
+void printMaze();
 
 enum CellType {
     PATH = 0,
@@ -129,10 +138,9 @@ enum CellType {
 
 std::vector<std::vector<int>> maze;
 
-void printMaze();
 void printMaze() {
-    for (int y = 0; y < GRID_HEIGHT; ++y) {
-        for (int x = 0; x < GRID_WIDTH; ++x) {
+    for (int y = 0; y < maze_width; ++y) {
+        for (int x = 0; x < maze_length; ++x) {
             if (maze[y][x] == WALL) {
                 std::cout << "■";
             }
@@ -144,7 +152,6 @@ void printMaze() {
     }
 }
 
-void generateMaze(int cx, int cy);
 void generateMaze(int cx, int cy) {
     maze[cy][cx] = PATH;
 
@@ -161,24 +168,94 @@ void generateMaze(int cx, int cy) {
         int nx = cx + dir.first;
         int ny = cy + dir.second;
         
-        if (nx > 0 && nx < GRID_WIDTH  && ny > 0 && ny < GRID_HEIGHT  && maze[ny][nx] == WALL) {
-
-            if (ny == GRID_HEIGHT - 1) {
-                ny--;
-				maze[ny][nx] = PATH;
-                continue;
-            }
-            if( nx == GRID_WIDTH - 1) {
-                nx--;
-				maze[ny][nx] = PATH;
-                continue;
-			}
+        if (nx > 0 && nx < maze_length-1  && ny > 0 && ny < maze_width-1  && maze[ny][nx] == WALL) {
             
             int wall_x = cx + dir.first / 2;
             int wall_y = cy + dir.second / 2;
             maze[wall_y][wall_x] = PATH;
 
             generateMaze(nx, ny);
+        }
+    }
+}
+
+void retouchMaze() {
+
+    if (maze_width % 2 == 0) {  // ㅣ
+        for (int i = 1; i < maze_length - 1; i++) {
+            if (rdmaze(mt) == 1) maze[i][maze_width - 2] = PATH;
+            else maze[i][maze_width - 2] = WALL;
+        }
+    }
+    if (maze_length % 2 == 0) { // ㅡ
+        for (int i = 1; i < maze_width - 1; i++) {
+            if (rdmaze(mt) == 1) maze[maze_length - 2][i] = PATH;
+            else maze[maze_length - 2][i] = WALL;
+        }
+    }
+
+	if (maze_width % 2 == 0) { // ㅣ
+        for (int i = 1; i < maze_length - 1; i++) {
+            if (maze[i][maze_width - 2] == PATH && maze[i-1][maze_width - 2] == WALL && maze[i + 1][maze_width - 2] == WALL && maze[i][maze_width - 3] == WALL) {
+                if(i == 1) maze[i + 1][maze_width - 2] = PATH;
+                else maze[i - 1][maze_width - 2] = PATH;
+			}
+        }
+    }
+	if (maze_length % 2 == 0) { // ㅡ
+        for (int i = 1; i < maze_width - 1; i++) {
+            if (maze[maze_length - 2][i] == PATH && maze[maze_length - 2][i - 1] == WALL && maze[maze_length - 2][i + 1] == WALL && maze[maze_length - 3][i] == WALL) {
+                if (i == 1) maze[maze_length - 2][i + 1] = PATH;
+                else maze[maze_length - 2][i - 1] = PATH;
+            }
+        }
+    }
+
+    for (int i = maze_width - 1; i > 0; i--) {  // 출구
+        if (maze[maze_length - 2][i] == PATH) {
+            maze[maze_length - 1][i] = PATH;
+            break;
+        }
+		goal_cnt++;
+    }
+}
+
+void setMaze() {
+    do {
+        std::cout << "길이(z방향) 너비(x방향) ex)20 15\n입력하시오: ";
+        std::cin >> maze_length >> maze_width;
+    } while (!(maze_width >= 5 && maze_width <= 35) || !(maze_length >= 5 && maze_length <= 35));
+    std::cout << maze_width << " " << maze_length << std::endl;
+
+    std::vector<std::vector<int>> a(maze_width, std::vector<int>(maze_length, WALL));
+    maze = a;
+
+    y_cam = BOX_SIZE * (maze_width + maze_width) / 2 + 10.0f; // 카메라 초기 위치 설정
+    z_cam = maze_width + maze_width; // 카메라 초기 위치 설정
+    maze[0][1] = PATH;
+    generateMaze(1, 1);
+    retouchMaze();
+    printMaze();
+}
+
+void init_maze() {
+    int cube_idx = 0;
+
+    for (int i = 0; i < maze_length; i++) {
+        for (int j = 0; j < maze_width; j++) {
+
+            float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)maze_width) / 2);
+            float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)maze_length) / 2);
+            shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
+            if (cube_idx == 1) {
+                p_x = x_pos;
+                p_y = BOX_SIZE / 2;
+				p_z = z_pos;
+			}
+
+            if (maze[i][j] == WALL) shapes[cube_idx].draw = true;
+            else if (maze[i][j] == PATH) shapes[cube_idx].draw = false;
+            cube_idx++;
         }
     }
 }
@@ -204,32 +281,7 @@ char* filetobuf(const char* file)
 
 void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설정
 {
-    do {
-        std::cout << "길이(x방향) 너비(z방향) ex)20 15\n입력하시오: ";
-        std::cin >> maze_width >> maze_length;
-    } while (!(maze_width >= 5 && maze_width <= 35) || !(maze_length >= 5 && maze_length <= 35));
-	std::cout << maze_width << " " << maze_length << std::endl;
-
-    GRID_HEIGHT = maze_width;
-    GRID_WIDTH = maze_length;
-
-    std::vector<std::vector<int>> a(GRID_HEIGHT, std::vector<int>(GRID_WIDTH, WALL));
-    maze = a;
-
-    y_cam = BOX_SIZE * (maze_width + maze_width)/2+ 10.0f; // 카메라 초기 위치 설정
-	z_cam = maze_width + maze_width; // 카메라 초기 위치 설정
-	maze[0][1] = PATH;
-    generateMaze(1, 1);
-    for(int i = GRID_WIDTH -1; i > 0; i--) {
-        if(maze[GRID_HEIGHT-2][i] == PATH) {
-            maze[GRID_HEIGHT-1][i] = PATH;
-            break;
-        }
-	}
-    printMaze();
-
-    width = 1200;
-    height = 800;
+    setMaze();
 
     //--- 윈도우 생성하기
     glutInit(&argc, argv);
@@ -252,16 +304,29 @@ void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설�
     for(int i = 0; i<maze_length*maze_width; i++) LoadOBJ("cube.obj", i);
 	init_maze();
 
+	player_object_num = maze_length * maze_width;
+    LoadOBJ("cube.obj", player_object_num);
+    shapes[player_object_num].draw = false;
+    
+	ground_object_num = player_object_num + 1;
+    LoadOBJ("cube.obj", ground_object_num);   //전체 바닥
+    LoadOBJ("cube.obj", ground_object_num+1);   //시작 바닥
+	shapes[ground_object_num + 1].reset = shapes[1].reset;
+    LoadOBJ("cube.obj", ground_object_num+2);   //도착 바닥
+    shapes[ground_object_num + 2].reset = shapes[(maze_length * maze_width) - goal_cnt - 1].reset;
+
     update_camera();
     cam_radius = glm::length(cam_locate - cam_at);
-    if (cam_radius < 1.0f) cam_radius = 1.0f; // 최소 거리 설정
+    if (cam_radius < 1.0f) cam_radius = 1.0f;
 
-    glutDisplayFunc(drawScene); //--- 출력 콜백 함수
+    glutDisplayFunc(drawScene);
     glutReshapeFunc(Reshape);
     glutKeyboardFunc(Keyboard);
+    glutSpecialFunc(SpecialKey);
+    glutSpecialUpFunc(SpecialUpKey);
     glutMouseFunc(Mouse);
     glutMotionFunc(MouseMove);
-    glutTimerFunc(1000 / 60, Timer, 1); //--- 타이머 콜백함수 지정 (60 FPS)
+    glutTimerFunc(1000 / 60, Timer, 1); 
 
     glutMainLoop();
 }
@@ -269,9 +334,6 @@ void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설�
 void make_vertexShaders()
 {
     GLchar* vertexSource;
-
-    //--- 버텍스 세이더 읽어 저장하고 컴파일 하기
-    //--- filetobuf: 사용자정의 함수로 텍스트를 읽어서 문자열에 저장하는 함수
 
     vertexSource = filetobuf("vertex.glsl");
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -289,13 +351,11 @@ void make_vertexShaders()
     }
 }
 
-//--- 프래그먼트 세이더 객체 만들기
 void make_fragmentShaders()
 {
     GLchar* fragmentSource;
 
-    //--- 프래그먼트 세이더 읽어 저장하고 컴파일하기
-    fragmentSource = filetobuf("fragment.glsl"); // 프래그세이더 읽어오기
+    fragmentSource = filetobuf("fragment.glsl");
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
     glCompileShader(fragmentShader);
@@ -316,25 +376,21 @@ GLuint make_shaderProgram()
     GLint result;
     GLchar* errorLog = NULL;
     GLuint shaderID;
-    shaderID = glCreateProgram(); //--- 세이더 프로그램 만들기
-    glAttachShader(shaderID, vertexShader); //--- 세이더 프로그램에 버텍스 세이더 붙이기
-    glAttachShader(shaderID, fragmentShader); //--- 세이더 프로그램에 프래그먼트 세이더 붙이기
-    glLinkProgram(shaderID); //--- 세이더 프로그램 링크하기
-    glDeleteShader(vertexShader); //--- 세이더 객체를 세이더 프로그램에 링크했음으로, 세이더 객체 자체는 삭제 가능
+    shaderID = glCreateProgram();
+    glAttachShader(shaderID, vertexShader);
+    glAttachShader(shaderID, fragmentShader);
+    glLinkProgram(shaderID);
+    glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-    glGetProgramiv(shaderID, GL_LINK_STATUS, &result); // ---세이더가 잘 연결되었는지 체크하기
+    glGetProgramiv(shaderID, GL_LINK_STATUS, &result);
     if (!result) {
         glGetProgramInfoLog(shaderID, 512, NULL, errorLog);
         std::cerr << "ERROR: shader program 연결 실패\n" << errorLog << std::endl;
         return false;
     }
-    glUseProgram(shaderID); //--- 만들어진 세이더 프로그램 사용하기
-    //--- 여러 개의 세이더프로그램 만들 수 있고, 그 중 한개의 프로그램을 사용하려면
-    //--- glUseProgram 함수를 호출하여 사용 할 특정 프로그램을 지정한다.
-    //--- 사용하기 직전에 호출할 수 있다.
+    glUseProgram(shaderID);
     return shaderID;
 }
-
 
 void UpdateBuffer()
 {
@@ -377,10 +433,6 @@ GLvoid drawScene() {
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, &view[0][0]);
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, &projection[0][0]);
 
-    if (viewLoc == -1 || projLoc == -1) {
-        std::cerr << "ERROR: View or Proj uniform location not found!" << std::endl;
-    }
-
     glBindVertexArray(vao);
     GLint first = 0;
     for (int i = 0; i < shapes.size(); i++) {
@@ -388,12 +440,16 @@ GLvoid drawScene() {
 
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &model[0][0]);
 
-        if (modelLoc == -1) {
-            std::cerr << "ERROR: Model uniform location not found!" << std::endl;
-        }
-
         int vertexCount = shapes[i].vertex.size() / 6;
-        if( isr && shapes[i].draw || !isr)glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        if (i == player_object_num) {
+            if(shapes[i].draw) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
+        else if (i == ground_object_num || i == ground_object_num + 1 || i == ground_object_num + 2) {
+            if (isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
+        else {
+            if ((isr && shapes[i].draw) || !isr)glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
         first += vertexCount;
     }
     glBindVertexArray(0);
@@ -401,6 +457,53 @@ GLvoid drawScene() {
     drawMiniMap(width, height);
 
     glutSwapBuffers();
+}
+
+void drawMiniMap(int w, int h)
+{
+    glViewport(w * 3 / 4, h * 3 / 4, w / 4, h / 4);
+
+    GLuint modelLoc = glGetUniformLocation(shaderProgramID, "uModel");
+    GLuint viewLoc = glGetUniformLocation(shaderProgramID, "uView");
+    GLuint projLoc = glGetUniformLocation(shaderProgramID, "uProj");
+
+    float map_width = BOX_SIZE * maze_length;
+    float map_height = BOX_SIZE * maze_width;
+    float maxrange = std::max(map_width, map_height) / 2.0f + BOX_SIZE * 2.0f;
+
+    glm::mat4 view = glm::lookAt(
+        glm::vec3(0.0f, maxrange * 2.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, -1.0f)
+    );
+
+    glm::mat4 proj = glm::ortho(-maxrange, maxrange, -maxrange, maxrange, 0.1f, maxrange * 4.0f);
+
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(proj));
+
+    glBindVertexArray(vao);
+    GLint first = 0;
+    for (size_t i = 0; i < shapes.size(); i++) {
+        glm::mat4 model = shapes[i].model;
+
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &model[0][0]);
+
+        int vertexCount = shapes[i].vertex.size() / 6;
+        if (i == player_object_num) {
+            if (isr && iss) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
+        else if(i == ground_object_num || i == ground_object_num +1 || i == ground_object_num +2){
+            if(isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+		}
+        else {
+            if (isr && shapes[i].draw || !isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
+        first += vertexCount;
+    }
+    glBindVertexArray(0);
+
+    glViewport(0, 0, w, h);
 }
 
 GLvoid Reshape(int w, int h) //--- 콜백 함수: 다시 그리기 콜백 함수
@@ -418,37 +521,38 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         proj_on = true;
 		break;
     case 'z':
-        z_cam += 0.5f;
-		z_at += 0.5f;
+        if (proj_on) {
+            z_cam += 0.5f;
+            z_at += 0.5f;
+        }
         break;
     case 'Z':
-        z_cam -= 0.5f;
-		z_at -= 0.5f;
+        if (proj_on) {
+            z_cam -= 0.5f;
+            z_at -= 0.5f;
+        }
         break;
-    case 'w':
-		y_at += 0.1f;
-		break;
-	case 'a':
-		x_at -= 0.1f;
+    case 'x':
+        if (proj_on) {
+            x_cam += 0.5f;
+            x_at += 0.5f;
+        }
         break;
-    case 's':
-		y_at -= 0.1f;
-		break;
-	case 'd':
-        x_at += 0.1f;
-		break;
+    case 'X':
+        if (proj_on) {
+            x_cam -= 0.5f;
+            x_at -= 0.5f;
+        }
+        break;
     case 'y': {
         glm::mat4 rotation_mat = glm::rotate(glm::mat4(1.0f), glm::radians(15.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         
-        // 1. cam_locate 공전 계산
         glm::vec3 relative_pos = cam_locate - cam_at;
         glm::vec4 rotated_relative_pos = rotation_mat * glm::vec4(relative_pos, 1.0f);
         glm::vec3 new_cam_locate = cam_at + glm::vec3(rotated_relative_pos);
         
-        // 2. cam_up 벡터를 월드 Y축으로 재설정 (핵심 수정)
         glm::vec3 new_cam_up = glm::vec3(0.0f, 1.0f, 0.0f); 
 
-        // 3. 전역 변수에 결과 반영
         x_cam = new_cam_locate.x;
         y_cam = new_cam_locate.y;
         z_cam = new_cam_locate.z;
@@ -463,15 +567,12 @@ GLvoid Keyboard(unsigned char key, int x, int y)
     case 'Y': {
         glm::mat4 rotation_mat = glm::rotate(glm::mat4(1.0f), glm::radians(-15.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
-        // 1. cam_locate 공전 계산
         glm::vec3 relative_pos = cam_locate - cam_at;
         glm::vec4 rotated_relative_pos = rotation_mat * glm::vec4(relative_pos, 1.0f);
         glm::vec3 new_cam_locate = cam_at + glm::vec3(rotated_relative_pos);
 
-        // 2. cam_up 벡터를 월드 Y축으로 재설정 (핵심 수정)
         glm::vec3 new_cam_up = glm::vec3(0.0f, 1.0f, 0.0f);
 
-        // 3. 전역 변수에 결과 반영
         x_cam = new_cam_locate.x;
         y_cam = new_cam_locate.y;
         z_cam = new_cam_locate.z;
@@ -484,7 +585,7 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         break;
     }
 	case 'r':
-		isr = !isr;
+		isr = true;
         break;
     case 'm':
         if(!start_anime) ism = true;
@@ -495,6 +596,12 @@ GLvoid Keyboard(unsigned char key, int x, int y)
     case 'v':
 		isv = !isv;
         break;
+    case 's':
+        if (isr) {
+            iss = true;
+            shapes[player_object_num].draw = true;
+        }
+        break;
     case '=':
         for (int i = 0; i < shapes.size();i++) {
             if(shapes[i].speed < 0.1f) shapes[i].speed += 0.01f;
@@ -504,6 +611,15 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         for (int i = 0; i < shapes.size();i++) {
             if (shapes[i].speed > 0.01f) shapes[i].speed -= 0.01f;
         }
+        break;
+    case '1':
+        if (iss) {
+            is1 = true;
+            shapes[player_object_num].draw = false;
+            cam_radius = 0.0f;
+        }
+        break;
+    case '3':
         break;
     case'c':
         reset_c();
@@ -519,59 +635,194 @@ GLvoid Keyboard(unsigned char key, int x, int y)
     glutPostRedisplay(); // 다시 그리기 요청
 }
 
+GLvoid SpecialKey(int key, int x, int y) {
+    switch (key) {
+    case GLUT_KEY_UP:
+		p_z_move = 1;
+        break;
+    case GLUT_KEY_DOWN:
+        p_z_move = -1;
+        break;
+    case GLUT_KEY_LEFT:
+        p_x_move = -1;
+        break;
+    case GLUT_KEY_RIGHT:
+        p_x_move = 1;
+        break;
+    }
+}
+
+GLvoid SpecialUpKey(int key, int x, int y){ // 키 업
+    switch (key) {
+    case GLUT_KEY_UP:
+		if (p_z_move == 1) p_z_move = 0;
+        break;
+    case GLUT_KEY_DOWN:
+		if (p_z_move == -1) p_z_move = 0;
+        break;
+    case GLUT_KEY_LEFT:
+		if (p_x_move == -1) p_x_move = 0;
+        break;
+    case GLUT_KEY_RIGHT:
+		if (p_x_move == 1) p_x_move = 0;
+        break;
+    }
+}
+
 GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
 {
     for (int i = 0; i < shapes.size(); i++) {
+        if (i < player_object_num) {
 
-        for (int j = 0; j < shapes[i].vertex.size(); j++) {
-            if (j % 6 == 3) {
-                if (shapes[i].vertex[j] >= 1.0f) shapes[i].r_increasing = false;
-				else if (shapes[i].vertex[j] <= 0.0f) shapes[i].r_increasing = true;
-                if(shapes[i].r_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
-                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
+            for (int j = 0; j < shapes[i].vertex.size(); j++) {
+                if (j % 6 == 3) {
+                    if (shapes[i].vertex[j] >= 1.0f) shapes[i].r_increasing = false;
+                    else if (shapes[i].vertex[j] <= 0.0f) shapes[i].r_increasing = true;
+                    if (shapes[i].r_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                    else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
+                }
+                if (j % 6 == 4) {
+                    if (shapes[i].vertex[j] <= 0.0f) shapes[i].g_increasing = true;
+                    else if (shapes[i].vertex[j] >= 1.0f) shapes[i].g_increasing = false;
+                    if (shapes[i].g_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                    else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
+                }
+                if (j % 6 == 5) {
+                    if (shapes[i].vertex[j] <= 0.0f) shapes[i].b_increasing = true;
+                    else if (shapes[i].vertex[j] >= 1.0f) shapes[i].b_increasing = false;
+                    if (shapes[i].b_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
+                    else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
+                }
             }
-            if (j % 6 == 4) {
-                if (shapes[i].vertex[j] <= 0.0f) shapes[i].g_increasing = true;
-                else if(shapes[i].vertex[j] >= 1.0f) shapes[i].g_increasing = false;
-                if (shapes[i].g_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
-                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
-            }
-            if (j % 6 == 5) {
-                if (shapes[i].vertex[j] <= 0.0f) shapes[i].b_increasing = true;
-                else if (shapes[i].vertex[j] >= 1.0f) shapes[i].b_increasing = false;
-                if (shapes[i].b_increasing) shapes[i].vertex[j] += 1.0f / (float)(maze_width * maze_length);
-                else shapes[i].vertex[j] -= 1.0f / (float)(maze_width * maze_length);
-            }
-        }
 
-        if (start_anime) {
-            if (shapes[i].height >= shapes[i].max_height) {
+            if (start_anime) {
+                if (shapes[i].height >= shapes[i].max_height) {
+                    shapes[i].is_moving_up = false;
+                    start_anime = false;
+                }
+                else shapes[i].height += shapes[i].speed;
+            }
+            if (isv) {
                 shapes[i].is_moving_up = false;
-				start_anime = false;
-            }
-            else shapes[i].height += shapes[i].speed;
-        }
-        if (isv) {
-            shapes[i].is_moving_up = false;
-            if (shapes[i].height <= BOX_SIZE/2) shapes[i].is_moving_up = true;
-			else shapes[i].height -= shapes[i].speed;
-        }
-        else {
-            if (ism) {
-                if (shapes[i].is_moving_up && (shapes[i].height >= shapes[i].max_height)) shapes[i].is_moving_up = false;
-                else if (!shapes[i].is_moving_up && (shapes[i].height <= BOX_SIZE / 2)) shapes[i].is_moving_up = true;
-                if (shapes[i].is_moving_up) shapes[i].height += shapes[i].speed;
+                if (shapes[i].height <= 0.1f) shapes[i].is_moving_up = true;
                 else shapes[i].height -= shapes[i].speed;
             }
+            else {
+                if (ism) {
+                    if (shapes[i].is_moving_up && (shapes[i].height >= shapes[i].max_height)) shapes[i].is_moving_up = false;
+                    else if (!shapes[i].is_moving_up && (shapes[i].height <= BOX_SIZE / 3)) shapes[i].is_moving_up = true;
+                    if (shapes[i].is_moving_up) shapes[i].height += shapes[i].speed;
+                    else shapes[i].height -= shapes[i].speed;
+                }
+            }
+
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, shapes[i].reset);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.0f));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 1.0f));
         }
+        else if(i == player_object_num) {
+			float new_p_x = p_x, new_p_z = p_z;
+			bool is_collision = false;
 
+            if(p_x_move == -1) new_p_x = p_x - 0.05f;
+			else if (p_x_move == 1) new_p_x = p_x + 0.05f;
+            if (p_z_move == -1) new_p_z = p_z + 0.05f;
+			else if (p_z_move == 1) new_p_z = p_z - 0.05f;
 
-		shapes[i].model = glm::mat4(1.0f);
-		shapes[i].model = glm::translate(shapes[i].model, shapes[i].reset);
-        shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.0f));
-		shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 1.0f));
+			shapes[i].reset = glm::vec3(new_p_x, p_y, new_p_z);
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+            update_world_obb(shapes[i]);
+
+            for(int j = 0; j < shapes.size(); j++) {
+                if (j != i && check_obb_collision(shapes[i], shapes[j]) && shapes[j].draw) {
+                    is_collision = true;
+                }
+                if (check_obb_collision(shapes[i], shapes[maze_length * maze_width - 1])) {
+					exit(0);
+                }
+			}
+
+            if(!is_collision) {
+                p_x = new_p_x;
+                p_z = new_p_z;
+            }
+
+            shapes[i].reset = glm::vec3(p_x, p_y, p_z);
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+		}
+        else if(i == ground_object_num) {
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(maze_width, 0.01f, maze_length));
+		}
+        else if (i == ground_object_num+1) {
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, 0.02f, 1.0f));
+        }
+        else if (i == ground_object_num+2) {
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, 0.02f, 1.0f));
+        }
         update_world_obb(shapes[i]);
     }
+
+    if (is1) {
+        x_cam = p_x;
+		y_cam = p_y + 0.1f;
+        z_cam = p_z;
+
+		//static float new_x_at = p_x, new_z_at = p_z;
+        //if (p_x_move == -1 && p_z_move == -1) {
+        //    new_x_at = p_x - 0.05f;
+        //    new_z_at = p_z + 0.05f;
+        //}
+        //else if (p_x_move == -1 && p_z_move == 1) {
+        //    new_x_at = p_x - 0.05f;
+        //    new_z_at = p_z - 0.05f;
+        //}
+        //else if (p_x_move == 1 && p_z_move == -1) {
+        //    new_x_at = p_x + 0.05f;
+        //    new_z_at = p_z + 0.05f;
+        //}
+        //else if (p_x_move == 1 && p_z_move == 1) {
+        //    new_x_at = p_x + 0.05f;
+        //    new_z_at = p_z - 0.05f;
+		//}
+        //else if (p_x_move == -1) {
+        //    new_x_at = p_x - 0.05f;
+        //    new_z_at = p_z;
+        //}
+        //else if (p_x_move == 1) {
+        //    new_x_at = p_x + 0.05f;
+        //    new_z_at = p_z;
+        //}
+        //else if(p_z_move == -1) {
+        //    new_x_at = p_x;
+        //    new_z_at = p_z + 0.05f;
+        //}
+        //else if (p_z_move == 1) {
+        //    new_x_at = p_x;
+        //    new_z_at = p_z - 0.05f;
+		//}
+        //
+		//x_at = new_x_at;
+		//z_at = new_z_at;
+        //y_at = y_cam;
+
+        x_up = 0.0f;
+        y_up = 1.0f;
+        z_up = 0.0f;
+
+        update_camera();
+    }
+
+
     UpdateBuffer();
     glutPostRedisplay(); // 다시 그리기 요청
     glutTimerFunc(1000 / 60, Timer, 1); //--- 타이머 콜백함수 지정 (60 FPS)
@@ -583,7 +834,7 @@ GLvoid Mouse(int button, int state, int x, int y) {
             is_mouse_down = true;
             last_mouse_x = x;
             last_mouse_y = y;
-
+    
             // cam_radius가 초기화되지 않았을 경우 다시 계산
             if (cam_radius < 1e-6) {
                 cam_radius = glm::length(cam_locate - cam_at);
@@ -601,24 +852,17 @@ GLvoid MouseMove(int x, int y) {
         float dx = (float)(x - last_mouse_x);
         float dy = (float)(y - last_mouse_y);
 
-        // 회전 속도 조절 (Sensitivity)
         float sensitivity = 0.005f;
 
-        // 1. 카메라의 현재 벡터 (시선 방향) 계산
         glm::vec3 view_dir = glm::normalize(cam_locate - cam_at);
 
-        // 2. Yaw (수평 회전) 적용 (월드 Y축 기준)
         glm::mat4 yaw_rot = glm::rotate(glm::mat4(1.0f), -dx * sensitivity, glm::vec3(0.0f, 1.0f, 0.0f));
         view_dir = glm::vec3(yaw_rot * glm::vec4(view_dir, 0.0f));
 
-        // 3. Pitch (수직 회전) 적용 (카메라의 오른쪽 벡터 기준)
-        // 오른쪽 벡터: 시선 벡터와 업 벡터의 외적
         glm::vec3 right_vector = glm::normalize(glm::cross(view_dir, cam_up));
         glm::mat4 pitch_rot = glm::rotate(glm::mat4(1.0f), dy * sensitivity, right_vector);
         view_dir = glm::vec3(pitch_rot * glm::vec4(view_dir, 0.0f));
 
-        // 4. 새로운 cam_at 위치 계산
-        // cam_at = cam_locate - (회전된 시선 벡터 * 반지름)
         glm::vec3 new_cam_at = cam_locate - view_dir * cam_radius;
 
         x_at = new_cam_at.x;
@@ -730,21 +974,34 @@ void LoadOBJ(const char* filename, int object_num)
     models.clear();
     models.push_back(read_obj_file(filename));
 
-    // --- OBB 계산을 위한 로컬 좌표계의 최소/최대값 초기화
     glm::vec3 min_v = glm::vec3(FLT_MAX);
     glm::vec3 max_v = glm::vec3(-FLT_MAX);
 
-    static float r=0.0f, g=1.0f, b=1.0f;
-    r += 1.0f / (float)(maze_width * maze_length);
-    g -= 1.0f / (float)(maze_width * maze_length);
-    b -= 1.0f / (float)(maze_width * maze_length);
+    static float wall_r=rdcolor(mt), wall_g = rdcolor(mt), wall_b = rdcolor(mt);
+    float r=0.0f, g = 0.0f, b = 0.0f;
 
-    // 큐브, 구체 등 object_num이 1 이상인 도형 (단일 객체 로딩)
+    if (object_num >= 0 && object_num < maze_length*maze_width) {
+        wall_r += (1.0f - wall_r) / (float)(maze_width * maze_length);
+        wall_g += (1.0f - wall_g) / (float)(maze_width * maze_length);
+        wall_b += (1.0f - wall_b) / (float)(maze_width * maze_length);
+		r = wall_r; g = wall_g; b = wall_b;
+    }
+    else if(object_num == player_object_num) {
+        r = 1.0f; g = 0.41f; b = 0.71f;
+	}
+    else if (object_num == ground_object_num) {
+        r = 0.2f; g = 0.2f; b = 0.2f;
+    }
+    else if (object_num == ground_object_num+1) {
+        r = 0.6f; g = 0.3f; b = 0.2f;
+    }
+    else if (object_num == ground_object_num+2) {
+        r = 0.5f; g = 0.6f; b = 0.3f;
+    }
 
     SHAPE object_shape;
     object_shape.object_num = object_num;
 
-    // --- AABB 계산 및 정점 데이터 합치기 ---
     for (auto& m : models) {
         for (size_t i = 0; i < m.face_count; i++) {
             Face f = m.faces[i];
@@ -752,7 +1009,6 @@ void LoadOBJ(const char* filename, int object_num)
             Vertex v2 = m.vertices[f.v2];
             Vertex v3 = m.vertices[f.v3];
 
-            // AABB 계산 (모든 정점을 대상으로)
             for (const Vertex* v : { &v1, &v2, &v3 }) {
                 min_v.x = glm::min(min_v.x, v->x);
                 min_v.y = glm::min(min_v.y, v->y);
@@ -761,8 +1017,6 @@ void LoadOBJ(const char* filename, int object_num)
                 max_v.y = glm::max(max_v.y, v->y);
                 max_v.z = glm::max(max_v.z, v->z);
             }
-
-            // 색상 설정 (object_num 기준)
 
             object_shape.vertex.insert(object_shape.vertex.end(), {
                 v1.x, v1.y, v1.z, r, g, b,
@@ -773,12 +1027,11 @@ void LoadOBJ(const char* filename, int object_num)
         }
     }
 
-    // 2. **[OBB 설정]**
     glm::vec3 local_center = (min_v + max_v) * 0.5f;
     glm::vec3 local_half_length = (max_v - min_v) * 0.5f;
 
     object_shape.local_obb.center = local_center;
-    object_shape.local_obb.half_length = local_half_length; // OBJ 파일의 로컬 Half-Length (큐브/구체는 약 1.0)
+    object_shape.local_obb.half_length = local_half_length;
     object_shape.local_obb.u[0] = glm::vec3(1.0f, 0.0f, 0.0f);
     object_shape.local_obb.u[1] = glm::vec3(0.0f, 1.0f, 0.0f);
     object_shape.local_obb.u[2] = glm::vec3(0.0f, 0.0f, 1.0f);
@@ -789,54 +1042,41 @@ void LoadOBJ(const char* filename, int object_num)
 }
 
 void update_world_obb(SHAPE& shape) {
-    // 모델 행렬의 회전/스케일 부분 (3x3) 추출
     glm::mat3 rotation_scale_mat = glm::mat3(shape.model);
 
-    // 1. 월드 중심 변환
     glm::vec4 local_center_h = glm::vec4(shape.local_obb.center, 1.0f);
     shape.world_obb.center = glm::vec3(shape.model * local_center_h);
 
-    // 2. 월드 축 변환
     for (int i = 0; i < 3; i++) {
         shape.world_obb.u[i] = glm::normalize(rotation_scale_mat * shape.local_obb.u[i]);
     }
 
-    // 3. **[핵심 수정]** 반치수 설정: 스케일 벡터를 추출하여 local_obb에 적용
-    // (모델 행렬의 각 축 길이가 스케일 팩터를 포함함)
     glm::vec3 scale_factors = glm::vec3(
         glm::length(rotation_scale_mat[0]), // X축 스케일
         glm::length(rotation_scale_mat[1]), // Y축 스케일
         glm::length(rotation_scale_mat[2])  // Z축 스케일
     );
 
-    // 로컬 반치수에 스케일 팩터를 곱하여 월드 반치수 설정
-    // (주의: 여기서는 비균일 스케일을 처리하기 위해 각 축의 스케일을 개별적으로 곱합니다.)
     shape.world_obb.half_length = shape.local_obb.half_length * scale_factors;
 }
 
 bool is_separated(const OBB& a, const OBB& b, const glm::vec3& axis) {
-    // 축의 길이가 너무 작으면 무시 (부동소수점 오차 처리)
     if (glm::length(axis) < 1e-6) return false;
 
-    // 두 OBB 중심 사이의 벡터
     glm::vec3 T = b.center - a.center;
 
-    // 1. 중심 간 거리 투영
     float distance_proj = glm::abs(glm::dot(T, axis));
 
-    // 2. OBB A의 '반지름' 투영 (각 로컬 축의 투영 길이의 합)
     float radius_a =
         glm::abs(glm::dot(a.half_length.x * a.u[0], axis)) +
         glm::abs(glm::dot(a.half_length.y * a.u[1], axis)) +
         glm::abs(glm::dot(a.half_length.z * a.u[2], axis));
 
-    // 3. OBB B의 '반지름' 투영
     float radius_b =
         glm::abs(glm::dot(b.half_length.x * b.u[0], axis)) +
         glm::abs(glm::dot(b.half_length.y * b.u[1], axis)) +
         glm::abs(glm::dot(b.half_length.z * b.u[2], axis));
 
-    // 중심 간 거리가 두 반지름의 합보다 크면 분리 (충돌 아님)
     return distance_proj > (radius_a + radius_b);
 }
 
@@ -844,17 +1084,14 @@ bool check_obb_collision(const SHAPE& shapeA, const SHAPE& shapeB) {
     const OBB& a = shapeA.world_obb;
     const OBB& b = shapeB.world_obb;
 
-    // 1. OBB A의 축 3개 검사
     for (int i = 0; i < 3; i++) {
         if (is_separated(a, b, a.u[i])) return false;
     }
 
-    // 2. OBB B의 축 3개 검사
     for (int i = 0; i < 3; i++) {
         if (is_separated(a, b, b.u[i])) return false;
     }
 
-    // 3. 교차 축 (A_i x B_j) 9개 검사
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
             glm::vec3 cross_axis = glm::cross(a.u[i], b.u[j]);
@@ -862,93 +1099,13 @@ bool check_obb_collision(const SHAPE& shapeA, const SHAPE& shapeB) {
         }
     }
 
-    // 15개 축 모두에서 분리되지 않았다면 충돌!
     return true;
-}
-
-void init_maze() {
-    int cube_idx = 0;
-
-    for (int i = 0; i < GRID_HEIGHT; i++) {   
-        for (int j = 0; j < GRID_WIDTH; j++) {
-
-            if (maze[i][j] == WALL) {
-                if (cube_idx >= shapes.size()) {
-                    std::cerr << "ERROR: Too many walls for pre-loaded shapes!" << std::endl;
-                    return;
-                }
-
-                float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)GRID_WIDTH) / 2);
-                float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)GRID_HEIGHT) / 2); // Z축 좌표계에 맞게 수정
-
-                shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
-                shapes[cube_idx].draw = true;
-            }
-            else if (maze[i][j] == PATH) {
-                shapes[cube_idx].draw = false;
-                float x_pos = BOX_SIZE / 2 + (BOX_SIZE * j) - ((BOX_SIZE * (float)GRID_WIDTH) / 2);
-                float z_pos = BOX_SIZE / 2 + (BOX_SIZE * i) - ((BOX_SIZE * (float)GRID_HEIGHT) / 2); // Z축 좌표계에 맞게 수정
-
-                shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
-            }
-            cube_idx++;
-        }
-    }
-
-    // (중요) 사용되지 않은 큐브(shape) 제거
-    // 만약 모든 shape을 LoadOBJ로 생성했다면, 벽이 아닌 곳의 shape은 숨기거나 제거해야 합니다.
-    // 가장 쉬운 방법은 '벽 개수'만큼만 큐브를 LoadOBJ하는 것입니다.
-    // 또는, 'reset' 위치를 아주 멀리 두거나, 렌더링 목록에서 제외합니다.
-
-    // 예: 사용한 큐브(벽) 수만큼만 남기고 나머지를 제거
-    // shapes.resize(cube_idx); 
-    // UpdateBuffer(); // 버퍼도 업데이트 필요
-}
-
-void drawMiniMap(int w, int h)
-{
-    glViewport(w * 3 / 4, h * 3 / 4, w / 4, h / 4);
-
-    GLuint modelLoc = glGetUniformLocation(shaderProgramID, "uModel");
-    GLuint viewLoc = glGetUniformLocation(shaderProgramID, "uView");
-    GLuint projLoc = glGetUniformLocation(shaderProgramID, "uProj");
-
-    float map_width = BOX_SIZE * maze_length;
-    float map_height = BOX_SIZE * maze_width;
-
-    float maxrange = std::max(map_width, map_height) / 2.0f + BOX_SIZE * 2.0f; // 약간의 여백 추가
-
-    glm::mat4 view = glm::lookAt(
-        glm::vec3(0.0f, maxrange * 2.0f, 0.0f),
-        glm::vec3(0.0f, 0.0f, 0.0f),           
-        glm::vec3(0.0f, 0.0f, -1.0f)           
-    );
-
-    glm::mat4 proj = glm::ortho(-maxrange, maxrange, -maxrange, maxrange, 0.1f, maxrange * 4.0f);
-
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(proj));
-
-    glBindVertexArray(vao);
-    GLint first = 0;
-    for (size_t i = 0; i < shapes.size(); i++) {
-        glm::mat4 model = shapes[i].model;
-
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, &model[0][0]);
-
-        int vertexCount = shapes[i].vertex.size() / 6;
-        if (isr && shapes[i].draw || !isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
-        first += vertexCount;
-    }
-    glBindVertexArray(0);
-
-    glViewport(0, 0, w, h);
 }
 
 void reset_c() {
 	x_cam = 0.0f;
-    y_cam = BOX_SIZE * (maze_width + maze_width) / 2 + 10.0f; // 카메라 초기 위치 설정
-    z_cam = maze_width * 2; // 카메라 초기 위치 설정
+    y_cam = BOX_SIZE * (maze_width + maze_width) / 2 + 10.0f; 
+    z_cam = maze_width * 2; 
 
     x_at = 0.0f;
     y_at = 0.0f;
@@ -966,15 +1123,6 @@ void reset_c() {
     for(int i = 0; i < shapes.size(); i++) {
         shapes[i].height = BOX_SIZE / 2;
         shapes[i].is_moving_up = true;
-
-        r += 1.0f / (float)(maze_width * maze_length);
-        g -= 1.0f / (float)(maze_width * maze_length);
-        b -= 1.0f / (float)(maze_width * maze_length);
-        for (int j = 0; j < shapes[i].vertex.size(); j++) {
-            if (j % 6 == 3) shapes[i].vertex[j] = r;
-            if (j % 6 == 4) shapes[i].vertex[j] = g;
-            if (j % 6 == 5) shapes[i].vertex[j] = b;
-        }
 	}
     UpdateBuffer();
 
