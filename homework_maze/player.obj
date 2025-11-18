@@ -1,0 +1,71 @@
+# Simple Cube-Based Character Model
+# Two cubes stacked to form a character. Guaranteed to render correctly.
+
+# Vertices (x, y, z)
+
+# Bottom Cube (Body)
+v 0.5 0.5 0.5   # 1
+v -0.5 0.5 0.5  # 2
+v 0.5 0.5 -0.5  # 3
+v -0.5 0.5 -0.5 # 4
+v 0.5 -0.5 0.5  # 5
+v -0.5 -0.5 0.5 # 6
+v 0.5 -0.5 -0.5 # 7
+v -0.5 -0.5 -0.5# 8
+
+# Top Cube (Head) - centered above body, slightly smaller
+v 0.4 1.0 0.4   # 9
+v -0.4 1.0 0.4  # 10
+v 0.4 1.0 -0.4  # 11
+v -0.4 1.0 -0.4 # 12
+v 0.4 0.5 0.4   # 13 (Shared with body top for connection)
+v -0.4 0.5 0.4  # 14 (Shared)
+v 0.4 0.5 -0.4  # 15 (Shared)
+v -0.4 0.5 -0.4 # 16 (Shared)
+
+# Faces (Standard cube faces, connected by shared vertices)
+
+# Bottom Cube Faces (Body)
+# Front Face
+f 1 2 6
+f 1 6 5
+# Back Face
+f 3 7 8
+f 3 8 4
+# Left Face
+f 2 4 8
+f 2 8 6
+# Right Face
+f 1 5 7
+f 1 7 3
+# Bottom Face
+f 5 6 8
+f 5 8 7
+# Top Face (Connects to Head)
+f 1 2 14
+f 1 14 13
+f 2 4 16
+f 2 16 14
+f 4 3 15
+f 4 15 16
+f 3 1 13
+f 3 13 15
+
+# Top Cube Faces (Head)
+# Front Face
+f 9 10 14
+f 9 14 13
+# Back Face
+f 11 15 16
+f 11 16 12
+# Left Face
+f 10 12 16
+f 10 16 14
+# Right Face
+f 9 13 15
+f 9 15 11
+# Top Face
+f 9 10 12
+f 9 12 11
+# Bottom Face (Already defined above as part of Body Top Face)
+# Note: Vertices 13, 14, 15, 16 are the bottom of the head and top of the body.

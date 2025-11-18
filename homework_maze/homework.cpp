@@ -83,12 +83,20 @@ int p_z_move = 0; // -1: down, 1: up
 
 int ground_object_num = -1;
 int goal_cnt = 0;
+
+bool is_jumping = false;      
+float vertical_speed = 0.0f;  
+const float JUMP_POWER = 0.4f;
+const float GRAVITY = -0.02f; 
+
+int coin_object_num = -1;
+int coin_cnt = 0;
 //
 
 
 struct OBB {
     glm::vec3 center = glm::vec3(0.0f);     
-    glm::vec3 u[3];                         // 세 정규직교 축 (u[0]=x축, u[1]=y축, u[2]=z축)
+    glm::vec3 u[3];                         // 세 정규직교 u[0]x, u[1]y, u[2]z
     glm::vec3 half_length = glm::vec3(0.0f); 
 };
 
@@ -112,7 +120,7 @@ struct SHAPE {
     
 	bool draw = true;
 
-    // OBB
+    // OBB 및 충돌처리 전용 변수들임
     OBB local_obb;  // 로컬 OBB
     OBB world_obb;  // 월드 OBB 
     bool is_colliding = false;
@@ -154,7 +162,7 @@ void printMaze() {
 
 void generateMaze(int cx, int cy) {
     maze[cy][cx] = PATH;
-
+    
     std::vector<std::pair<int, int>> directions = {
         {0, -2}, 
         {0, 2},  
@@ -249,7 +257,7 @@ void init_maze() {
             shapes[cube_idx].reset = glm::vec3(x_pos, 0.0f, z_pos);
             if (cube_idx == 1) {
                 p_x = x_pos;
-                p_y = BOX_SIZE / 2;
+                p_y = 0.02f;
 				p_z = z_pos;
 			}
 
@@ -258,6 +266,7 @@ void init_maze() {
             cube_idx++;
         }
     }
+
 }
 
 char* filetobuf(const char* file)
@@ -314,6 +323,21 @@ void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설�
 	shapes[ground_object_num + 1].reset = shapes[1].reset;
     LoadOBJ("cube.obj", ground_object_num+2);   //도착 바닥
     shapes[ground_object_num + 2].reset = shapes[(maze_length * maze_width) - goal_cnt - 1].reset;
+    shapes[((maze_length - 1) * maze_width) - goal_cnt - 1].draw = true;
+
+	coin_object_num = ground_object_num + 3;
+	LoadOBJ("cube.obj", coin_object_num);
+    std::uniform_int_distribution<int> rdcoinwidth(1, maze_width - 2);
+    std::uniform_int_distribution<int> rdcoinlength(1, maze_length - 2);
+    while (1) {
+        int coin_length = rdcoinlength(mt);
+        int coin_width = rdcoinwidth(mt);
+        if (maze[coin_length][coin_width] == PATH) {
+            shapes[coin_object_num].reset = glm::vec3(shapes[coin_length * maze_width + coin_width].reset.x, BOX_SIZE / 2 + 0.1f, shapes[coin_length * maze_width + coin_width].reset.z);
+            shapes[coin_object_num].draw = true;
+            break;
+        }
+    }
 
     update_camera();
     cam_radius = glm::length(cam_locate - cam_at);
@@ -447,6 +471,9 @@ GLvoid drawScene() {
         else if (i == ground_object_num || i == ground_object_num + 1 || i == ground_object_num + 2) {
             if (isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
         }
+        else if (i == coin_object_num) {
+            if (isr && shapes[i].draw) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+        }
         else {
             if ((isr && shapes[i].draw) || !isr)glDrawArrays(GL_TRIANGLES, first, vertexCount);
         }
@@ -495,6 +522,9 @@ void drawMiniMap(int w, int h)
         }
         else if(i == ground_object_num || i == ground_object_num +1 || i == ground_object_num +2){
             if(isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
+		}
+        else if(i == coin_object_num){
+            if (isr && shapes[i].draw) glDrawArrays(GL_TRIANGLES, first, vertexCount);
 		}
         else {
             if (isr && shapes[i].draw || !isr) glDrawArrays(GL_TRIANGLES, first, vertexCount);
@@ -617,11 +647,15 @@ GLvoid Keyboard(unsigned char key, int x, int y)
             is1 = true;
             shapes[player_object_num].draw = false;
             cam_radius = 100.0f;
+			x_at = p_x;
+			y_at = p_y;
+			z_at = p_z + BOX_SIZE*35;
         }
         break;
     case '3':
         if (is1) {
             is1 = false;
+            shapes[player_object_num].draw = true;
 
             x_cam = 0.0f;
             y_cam = BOX_SIZE * (maze_width + maze_width) / 2 + 10.0f;
@@ -643,6 +677,12 @@ GLvoid Keyboard(unsigned char key, int x, int y)
     case'c':
         reset_c();
         break;
+    case ' ':
+        if (iss && !is_jumping) {
+            is_jumping = true;
+            vertical_speed = JUMP_POWER;
+        }
+        break;
     case 'h':
         depth_on = !depth_on;
         break;
@@ -663,10 +703,10 @@ GLvoid SpecialKey(int key, int x, int y) {
         p_z_move = -1;
         break;
     case GLUT_KEY_LEFT:
-        p_x_move = -1;
+        p_x_move = 1;
         break;
     case GLUT_KEY_RIGHT:
-        p_x_move = 1;
+        p_x_move = -1;
         break;
     }
 }
@@ -680,10 +720,10 @@ GLvoid SpecialUpKey(int key, int x, int y){ // 키 업
 		if (p_z_move == -1) p_z_move = 0;
         break;
     case GLUT_KEY_LEFT:
-		if (p_x_move == -1) p_x_move = 0;
+		if (p_x_move == 1) p_x_move = 0;
         break;
     case GLUT_KEY_RIGHT:
-		if (p_x_move == 1) p_x_move = 0;
+		if (p_x_move == -1) p_x_move = 0;
         break;
     }
 }
@@ -737,42 +777,112 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
 
             shapes[i].model = glm::mat4(1.0f);
             shapes[i].model = glm::translate(shapes[i].model, shapes[i].reset);
-            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.0f));
-            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 1.0f));
+            if (i == ((maze_length - 1) * maze_width) - goal_cnt - 1) {
+                if (!isr) {
+                    shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.0f));
+                    shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 1.0f));
+                }
+                else {
+                    shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.8f));
+                    shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 0.2f));
+                }
+            }
+            else {
+                shapes[i].model = glm::translate(shapes[i].model, glm::vec3(0.0f, shapes[i].height, 0.0f));
+                shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, shapes[i].height, 1.0f));
+            }
         }
         else if(i == player_object_num) {
-			float new_p_x = p_x, new_p_z = p_z;
-			bool is_collision = false;
+            float new_p_x = p_x, new_p_z = p_z, new_p_y = p_y;;
+            bool is_collision = false;
+            float move_speed = 0.05f;
 
-            if(p_x_move == -1) new_p_x = p_x - 0.05f;
-			else if (p_x_move == 1) new_p_x = p_x + 0.05f;
-            if (p_z_move == -1) new_p_z = p_z + 0.05f;
-			else if (p_z_move == 1) new_p_z = p_z - 0.05f;
+            // 전방 벡터 정규화 xz평면, 앞 뒤 이동 위함
+            glm::vec3 front_dir = glm::normalize(cam_at - cam_locate);
+            glm::vec3 front_xz = glm::normalize(glm::vec3(front_dir.x, 0.0f, front_dir.z));
+			// 우측 벡터 정규화 xz평면, 좌 우 이동을 위함
+            glm::vec3 right_dir = glm::normalize(glm::cross(cam_up, front_dir));
+            glm::vec3 right_xz = glm::normalize(glm::vec3(right_dir.x, 0.0f, right_dir.z));
 
-			shapes[i].reset = glm::vec3(new_p_x, p_y, new_p_z);
+            glm::vec3 move_delta = glm::vec3(0.0f);
+
+			if (p_z_move != 0) {// 앞 뒤 이동
+                move_delta += (float)p_z_move * front_xz * move_speed;
+            }
+
+			if (p_x_move != 0) {// 좌 우 이동
+                move_delta += (float)p_x_move * right_xz * move_speed;
+            }
+
+            new_p_x = p_x + move_delta.x;
+            new_p_z = p_z + move_delta.z;
+
+            if (is_jumping) { // 점프 충돌
+                vertical_speed += GRAVITY;
+                new_p_y = p_y + vertical_speed;
+
+                const float ground_y = 0.02f;
+                if (new_p_y <= ground_y) {
+                    new_p_y = ground_y;   
+                    is_jumping = false;   
+                    vertical_speed = 0.0f;
+                }
+            }
+
+			// 코인 충돌 체크
+            shapes[i].reset = glm::vec3(new_p_x, new_p_y, new_p_z);
+            shapes[i].model = glm::mat4(1.0f);
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+            update_world_obb(shapes[i]);
+            if (check_obb_collision(shapes[player_object_num], shapes[coin_object_num])) {
+                coin_cnt++;
+                if (coin_cnt < 3) {
+                    std::uniform_int_distribution<int> rdcoinwidth(1, maze_width - 2);
+                    std::uniform_int_distribution<int> rdcoinlength(1, maze_length - 2);
+                    while (1) {
+                        int coin_length = rdcoinlength(mt);
+                        int coin_width = rdcoinwidth(mt);
+                        if (maze[coin_length][coin_width] == PATH) {
+                            shapes[coin_object_num].reset = glm::vec3(shapes[coin_length * maze_width + coin_width].reset.x, BOX_SIZE / 2 + 0.1f, shapes[coin_length * maze_width + coin_width].reset.z);
+                            shapes[coin_object_num].draw = true;
+                            break;
+                        }
+                    }
+                }
+                else {
+                    shapes[coin_object_num].draw = false;
+                    shapes[((maze_length - 1) * maze_width) - goal_cnt - 1].draw = false;
+                }
+            }
+            
+            // 벽 충돌
+            shapes[i].reset = glm::vec3(new_p_x, 0.1f, new_p_z);
             shapes[i].model = glm::mat4(1.0f);
             shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
             shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
             update_world_obb(shapes[i]);
 
-            for(int j = 0; j < player_object_num; j++) {
-                if (j != i && check_obb_collision(shapes[i], shapes[j]) && shapes[j].draw) {
-                    is_collision = true;
+            for (int j = 0; j < shapes.size(); j++) {
+                if (j != player_object_num && j < ground_object_num) {
+                    if (shapes[j].draw && check_obb_collision(shapes[i], shapes[j])) {
+                        is_collision = true;
+                        break;
+                    }
                 }
-                if (check_obb_collision(shapes[i], shapes[maze_length * maze_width - goal_cnt - 1])) {
-					exit(0);
-                }
-			}
+            }
 
-            if(!is_collision) {
+            p_y = new_p_y;
+            if (!is_collision) {
                 p_x = new_p_x;
                 p_z = new_p_z;
             }
-
-            shapes[i].reset = glm::vec3(p_x, p_y, p_z);
-            shapes[i].model = glm::mat4(1.0f);
-            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
-            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+            else {
+                shapes[i].reset = glm::vec3(p_x, p_y, p_z);
+                shapes[i].model = glm::mat4(1.0f);
+                shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+                shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+            }
 		}
         else if(i == ground_object_num) {
             shapes[i].model = glm::mat4(1.0f);
@@ -788,12 +898,21 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
             shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
             shapes[i].model = glm::scale(shapes[i].model, glm::vec3(1.0f, 0.02f, 1.0f));
         }
+        else if(i == coin_object_num) {
+            shapes[i].model = glm::mat4(1.0f);
+			static float angle = 0.0f;
+			angle += 2.0f;
+
+            shapes[i].model = glm::translate(shapes[i].model, glm::vec3(shapes[i].reset));
+			shapes[i].model = glm::rotate(shapes[i].model, glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
+            shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
+		}
         update_world_obb(shapes[i]);
     }
 
-    if (is1) {
+	if (is1) {  //1인칭 시점
         x_cam = p_x;
-		y_cam = p_y + 0.1f;
+		y_cam = p_y+0.1f;
         z_cam = p_z;
 
 		//static float new_x_at = p_x, new_z_at = p_z;
@@ -841,6 +960,9 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
         update_camera();
     }
 
+    if (check_obb_collision(shapes[player_object_num], shapes[maze_length * maze_width - goal_cnt - 1]) && coin_cnt >= 3) {
+        exit(0);
+    }
 
     UpdateBuffer();
     glutPostRedisplay(); // 다시 그리기 요청
@@ -854,7 +976,6 @@ GLvoid Mouse(int button, int state, int x, int y) {
             last_mouse_x = x;
             last_mouse_y = y;
     
-            // cam_radius가 초기화되지 않았을 경우 다시 계산
             if (cam_radius < 1e-6) {
                 cam_radius = glm::length(cam_locate - cam_at);
                 if (cam_radius < 1.0f) cam_radius = 1.0f;
@@ -866,21 +987,32 @@ GLvoid Mouse(int button, int state, int x, int y) {
     }
 }
 
-GLvoid MouseMove(int x, int y) {
+GLvoid MouseMove(int x, int y) {    // 마우스 자유 시점 변환
     if (is_mouse_down) {
         float dx = (float)(x - last_mouse_x);
         float dy = (float)(y - last_mouse_y);
 
-        float sensitivity = 0.005f;
+        float mingamdo = 0.005f;
 
         glm::vec3 view_dir = glm::normalize(cam_locate - cam_at);
 
-        glm::mat4 yaw_rot = glm::rotate(glm::mat4(1.0f), -dx * sensitivity, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 yaw_rot = glm::rotate(glm::mat4(1.0f), -dx * mingamdo, glm::vec3(0.0f, 1.0f, 0.0f));
         view_dir = glm::vec3(yaw_rot * glm::vec4(view_dir, 0.0f));
 
         glm::vec3 right_vector = glm::normalize(glm::cross(view_dir, cam_up));
-        glm::mat4 pitch_rot = glm::rotate(glm::mat4(1.0f), dy * sensitivity, right_vector);
-        view_dir = glm::vec3(pitch_rot * glm::vec4(view_dir, 0.0f));
+        
+        float pitch_angle = dy * mingamdo;
+
+        glm::mat4 pitch_rotate = glm::rotate(glm::mat4(1.0f), pitch_angle, right_vector);
+        glm::vec3 potential_view_dir = glm::vec3(pitch_rotate * glm::vec4(view_dir, 0.0f));
+
+        const float y_up_limit = 0.95f;
+        const float y_down_limit = -0.95f;
+        if (potential_view_dir.y < y_down_limit || potential_view_dir.y > y_up_limit) {
+        }
+        else {
+            view_dir = potential_view_dir;
+        }
 
         glm::vec3 new_cam_at = cam_locate - view_dir * cam_radius;
 
@@ -1016,6 +1148,9 @@ void LoadOBJ(const char* filename, int object_num)
     }
     else if (object_num == ground_object_num+2) {
         r = 0.5f; g = 0.6f; b = 0.3f;
+    }
+    else if (object_num == coin_object_num) {
+        r = 1.0f; g = 1.0f; b = 0.0f;
     }
 
     SHAPE object_shape;
@@ -1156,11 +1291,14 @@ void reset_c() {
 
 	shapes[player_object_num].draw = false;
     p_x = shapes[1].reset.x;
-    p_y = BOX_SIZE / 2;
+    p_y = 0.02f;
     p_z = shapes[1].reset.z;
     p_x_move = 0;
 	p_z_move = 0;
 
+	coin_cnt = 0;
+	shapes[coin_object_num].draw = true;
+    shapes[((maze_length - 1) * maze_width) - goal_cnt - 1].draw = true;
 }
 
 void update_camera() {
