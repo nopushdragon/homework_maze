@@ -616,7 +616,7 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         if (iss) {
             is1 = true;
             shapes[player_object_num].draw = false;
-            cam_radius = 0.0f;
+            cam_radius = 100.0f;
         }
         break;
     case '3':
@@ -755,11 +755,11 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
             shapes[i].model = glm::scale(shapes[i].model, glm::vec3(0.2f, 0.2f, 0.2f));
             update_world_obb(shapes[i]);
 
-            for(int j = 0; j < shapes.size(); j++) {
+            for(int j = 0; j < player_object_num; j++) {
                 if (j != i && check_obb_collision(shapes[i], shapes[j]) && shapes[j].draw) {
                     is_collision = true;
                 }
-                if (check_obb_collision(shapes[i], shapes[maze_length * maze_width - 1])) {
+                if (check_obb_collision(shapes[i], shapes[maze_length * maze_width - goal_cnt - 1])) {
 					exit(0);
                 }
 			}
