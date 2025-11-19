@@ -1331,6 +1331,7 @@ void reset_c() {
     iss = false;
 	isr = false;
     is1 = false;
+    is2 = false;
 
 	shapes[player_object_num].draw = false;
     p_x = shapes[1].reset.x;
