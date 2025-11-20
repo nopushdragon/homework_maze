@@ -16,6 +16,7 @@
 #include <string.h>
 #include <algorithm> 
 #include <stack>     
+#include <windows.h>
 
 std::random_device rd;
 std::mt19937 mt(rd());
@@ -143,6 +144,7 @@ void setMaze();
 void retouchMaze();
 void generateMaze(int cx, int cy);
 void printMaze();
+void update_dos();
 
 enum PATH_WALL {
     PATH = 0,
@@ -235,8 +237,11 @@ void retouchMaze() {
 
 void setMaze() {
     do {
+		system("cls");
         std::cout << "길이(z방향) 너비(x방향) ex)20 15\n입력하시오: ";
         std::cin >> maze_length >> maze_width;
+		std::cin.clear();
+		std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     } while (!(maze_width >= 5 && maze_width <= 35) || !(maze_length >= 5 && maze_length <= 35));
     std::cout << maze_width << " " << maze_length << std::endl;
 
@@ -296,13 +301,14 @@ char* filetobuf(const char* file)
 void main(int argc, char** argv) //--- 윈도우 출력하고 콜백함수 설정
 {
     setMaze();
+    update_dos();
 
     //--- 윈도우 생성하기
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
     glutInitWindowPosition(100, 100);
     glutInitWindowSize(width, height);
-    glutCreateWindow("Example1");
+    glutCreateWindow("homework_maze");
 
     //--- GLEW 초기화하기
     glewExperimental = GL_TRUE;
@@ -867,6 +873,7 @@ GLvoid Timer(int value) //--- 콜백 함수: 타이머 콜백 함수
                 if (check_obb_collision(shapes[player_object_num], shapes[coin_object_num])) {
                     shapes[coin_object_num].draw = false;
                     coin_cnt++;
+                    update_dos();
                     if (coin_cnt < 3) {
                         std::uniform_int_distribution<int> rdcoinwidth(1, maze_width - 2);
                         std::uniform_int_distribution<int> rdcoinlength(1, maze_length - 2);
@@ -1341,6 +1348,7 @@ void reset_c() {
 	p_z_move = 0;
 
 	coin_cnt = 0;
+    update_dos();
     std::uniform_int_distribution<int> rdcoinwidth(1, maze_width - 2);
     std::uniform_int_distribution<int> rdcoinlength(1, maze_length - 2);
     while (1) {
@@ -1359,4 +1367,15 @@ void update_camera() {
     cam_locate = glm::vec3(x_cam, y_cam, z_cam);
     cam_at = glm::vec3(x_at, y_at, z_at);
 	cam_up = glm::vec3(x_up, y_up, z_up);
+}
+
+void update_dos() {
+    system("cls");
+	std::cout << "============================== 미로 탈출 게임 ==============================" << std::endl;
+	std::cout << "전체 미로 맵:" << std::endl;
+    printMaze();
+    std::cout << "=======================================================================" << std::endl;
+    std::cout << "현재 코인: " << coin_cnt << " (목표 코인 3개)" << std::endl;
+    if(coin_cnt <3) std::cout << "코인을 모두 모으면 출구가 열립니다!" << std::endl;
+    else std::cout << "출구가 열렸습니다! 출구로 이동하세요!" << std::endl;
 }
