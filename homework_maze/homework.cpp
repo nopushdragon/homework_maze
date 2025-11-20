@@ -715,7 +715,7 @@ GLvoid Keyboard(unsigned char key, int x, int y)
         }
         break;
     case 'h':
-        depth_on = !depth_on;
+		is_cheat = !is_cheat;
         break;
     case 'q':
         exit(0);
@@ -1339,6 +1339,7 @@ void reset_c() {
 	isr = false;
     is1 = false;
     is2 = false;
+	is_cheat = false;
 
 	shapes[player_object_num].draw = false;
     p_x = shapes[1].reset.x;
@@ -1393,7 +1394,8 @@ void update_dos() {
         "c: 모든 값을 초기화한다.\n" <<
         "q: 프로그램을 종료한다.\n" <<
         "마우스: 카메라가 1 또는 2인 경우에 마우스 클릭하고 드래그하면 시점이 자유롭게 변화한다.\n" << 
-        "(카메라가 바라보는 방향이 전진 방향이다)\n" << std::endl;
+        "(카메라가 바라보는 방향이 전진 방향이다)\n" <<
+        "h: 치트를 켜서 벽과의 충돌을 비활성화 한다.\n"  << std::endl;
     std::cout << "=======================================================================" << std::endl;
     std::cout << "현재 코인: " << coin_cnt << " (목표 코인 3개)" << std::endl;
     if(coin_cnt <3) std::cout << "코인을 모두 모으면 출구가 열립니다!" << std::endl;
