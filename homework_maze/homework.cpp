@@ -238,7 +238,7 @@ void retouchMaze() {
 void setMaze() {
     do {
 		system("cls");
-        std::cout << "길이(z방향) 너비(x방향) ex)20 15\n입력하시오: ";
+        std::cout << "길이(z방향) 너비(x방향) ex)20 15\n입력하시오(최소 5, 최대 35): ";
         std::cin >> maze_length >> maze_width;
 		std::cin.clear();
 		std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
